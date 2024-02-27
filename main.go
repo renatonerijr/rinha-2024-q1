@@ -15,6 +15,31 @@ var (
 	errMsgBytes = []byte(errMsg)
 )
 
+type routerStruct struct {
+	routes map[string]func(gnet.Conn, []byte, *httpCodec) gnet.Action
+}
+
+func (r *routerStruct) findHandler(path string) (func(gnet.Conn, []byte, *httpCodec) gnet.Action, bool) {
+	handler, ok := r.routes[path]
+	return handler, ok
+}
+
+var router = routerStruct{
+	routes: map[string]func(gnet.Conn, []byte, *httpCodec) gnet.Action{
+		"/hello": helloHandler,
+	},
+}
+
+func helloHandler(c gnet.Conn, buf []byte, hc *httpCodec) gnet.Action {
+	hc.buf = append(hc.buf, "HTTP/1.1 200 OK\r\nServer: gnet\r\nContent-Type: application/json	\r\nDate: "...)
+	hc.buf = time.Now().AppendFormat(hc.buf, "Mon, 02 Jan 2006 15:04:05 GMT")
+	content := "{\"hello\": \"Hello World!\"}"
+	contentLength := len(content)
+	formattedString := fmt.Sprintf("\r\nContent-Lenght: %d\r\n\r\n%s", contentLength, content)
+	hc.buf = append(hc.buf, formattedString...)
+	return gnet.None
+}
+
 type httpServer struct {
 	gnet.BuiltinEventEngine
 
@@ -26,12 +51,6 @@ type httpServer struct {
 type httpCodec struct {
 	parser *wildcat.HTTPParser
 	buf    []byte
-}
-
-func (hc *httpCodec) appendResponse() {
-	hc.buf = append(hc.buf, "HTTP/1.1 200 OK\r\nServer: gnet\r\nContent-Type: text/plain\r\nDate: "...)
-	hc.buf = time.Now().AppendFormat(hc.buf, "Mon, 02 Jan 2006 15:04:05 GMT")
-	hc.buf = append(hc.buf, "\r\nContent-Length: 12\r\n\r\nHello World!"...)
 }
 
 func (hs *httpServer) OnBoot(eng gnet.Engine) gnet.Action {
@@ -55,7 +74,15 @@ pipeline:
 		c.Write(errMsgBytes)
 		return gnet.Close
 	}
-	hc.appendResponse()
+	path := string(hc.parser.Path)
+	log.Println(string(path))
+	handler, ok := router.findHandler(path)
+
+	if !ok {
+		c.Write([]byte("404 Not Found"))
+		return gnet.Close
+	}
+
 	bodyLen := int(hc.parser.ContentLength())
 	if bodyLen == -1 {
 		bodyLen = 0
@@ -65,8 +92,10 @@ pipeline:
 		goto pipeline
 	}
 
+	handler(c, buf, hc)
 	c.Write(hc.buf)
 	hc.buf = hc.buf[:0]
+	c.Close()
 	return gnet.None
 }
 
@@ -80,7 +109,6 @@ func main() {
 	flag.Parse()
 
 	hs := &httpServer{addr: fmt.Sprintf("tcp://127.0.0.1:%d", port), multicore: multicore}
-
 	// Start serving!
 	log.Println("server exits:", gnet.Run(hs, hs.addr, gnet.WithMulticore(multicore)))
 }
