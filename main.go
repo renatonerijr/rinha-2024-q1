@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"regexp"
 	"time"
 
 	"github.com/evanphx/wildcat"
@@ -20,23 +21,55 @@ type routerStruct struct {
 }
 
 func (r *routerStruct) findHandler(path string) (func(gnet.Conn, []byte, *httpCodec) gnet.Action, bool) {
-	handler, ok := r.routes[path]
-	return handler, ok
+	for registeredPath, handler := range r.routes {
+		if len(registeredPath) <= len(path) && registeredPath == path[:len(registeredPath)] {
+			return handler, true
+		}
+	}
+	return nil, false
 }
 
 var router = routerStruct{
 	routes: map[string]func(gnet.Conn, []byte, *httpCodec) gnet.Action{
-		"/hello": helloHandler,
+		"/hello":    helloHandler,
+		"/clientes": clientHandler,
 	},
 }
 
-func helloHandler(c gnet.Conn, buf []byte, hc *httpCodec) gnet.Action {
+func writeResponse(hc *httpCodec, content string) {
 	hc.buf = append(hc.buf, "HTTP/1.1 200 OK\r\nServer: gnet\r\nContent-Type: application/json	\r\nDate: "...)
 	hc.buf = time.Now().AppendFormat(hc.buf, "Mon, 02 Jan 2006 15:04:05 GMT")
-	content := "{\"hello\": \"Hello World!\"}"
 	contentLength := len(content)
 	formattedString := fmt.Sprintf("\r\nContent-Lenght: %d\r\n\r\n%s", contentLength, content)
 	hc.buf = append(hc.buf, formattedString...)
+}
+
+func clientHandler(c gnet.Conn, body []byte, hc *httpCodec) gnet.Action {
+	writeResponse(hc, "{\"hello\": \"Hello Clientes!\"}")
+	pattern := regexp.MustCompile(`^/clientes/(\d+)/transacoes$`)
+
+	// Try to match the path against the pattern
+	path := string(hc.parser.Path)
+	match := pattern.FindStringSubmatch(path)
+	if match == nil {
+		return gnet.None
+	}
+
+	id := match[1]
+
+	if path == "/clientes/"+id+"/transacoes" {
+		transacoesHandler
+	} else if path == "/clientes/"+id+"/extrato" {
+		extratoHandler
+	} else {
+		return gnet.None
+	}
+
+	return gnet.None
+}
+
+func helloHandler(c gnet.Conn, body []byte, hc *httpCodec) gnet.Action {
+	writeResponse(hc, "{\"hello\": \"Hello World!\"}")
 	return gnet.None
 }
 
@@ -69,7 +102,9 @@ func (hs *httpServer) OnTraffic(c gnet.Conn) gnet.Action {
 	buf, _ := c.Next(-1)
 
 pipeline:
+
 	headerOffset, err := hc.parser.Parse(buf)
+
 	if err != nil {
 		c.Write(errMsgBytes)
 		return gnet.Close
@@ -82,7 +117,7 @@ pipeline:
 		c.Write([]byte("404 Not Found"))
 		return gnet.Close
 	}
-
+	body := buf[headerOffset:]
 	bodyLen := int(hc.parser.ContentLength())
 	if bodyLen == -1 {
 		bodyLen = 0
@@ -92,7 +127,7 @@ pipeline:
 		goto pipeline
 	}
 
-	handler(c, buf, hc)
+	handler(c, body, hc)
 	c.Write(hc.buf)
 	hc.buf = hc.buf[:0]
 	c.Close()
