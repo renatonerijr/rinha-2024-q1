@@ -45,8 +45,7 @@ func writeResponse(hc *httpCodec, content string) {
 }
 
 func clientHandler(c gnet.Conn, body []byte, hc *httpCodec) gnet.Action {
-	writeResponse(hc, "{\"hello\": \"Hello Clientes!\"}")
-	pattern := regexp.MustCompile(`^/clientes/(\d+)/transacoes$`)
+	pattern := regexp.MustCompile(`^/clientes/(\d+)/\w*`)
 
 	// Try to match the path against the pattern
 	path := string(hc.parser.Path)
@@ -58,11 +57,11 @@ func clientHandler(c gnet.Conn, body []byte, hc *httpCodec) gnet.Action {
 	id := match[1]
 
 	if path == "/clientes/"+id+"/transacoes" {
-		transacoesHandler
+		writeResponse(hc, "{\"response\": \"transacoes id"+id+"\"}")
 	} else if path == "/clientes/"+id+"/extrato" {
-		extratoHandler
+		writeResponse(hc, "{\"response\": \"extract id"+id+"\"}")
 	} else {
-		return gnet.None
+		writeResponse(hc, "{\"response\": \"not found\"}")
 	}
 
 	return gnet.None
