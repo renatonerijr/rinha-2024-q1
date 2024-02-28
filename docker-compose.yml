@@ -59,6 +59,18 @@ services:
         limits:
           cpus: "0.25"
           memory: "140MB"
+  
+  pgadmin:
+    image: dpage/pgadmin4:7.6
+    tty: true
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@user.com
+      - PGADMIN_DEFAULT_PASSWORD=123456
+    ports:
+      - "9000:80"
+    depends_on:
+      - db
+
 
 networks:
   default:
