@@ -31,13 +31,18 @@ type PayloadTransaction struct {
 	Descricao string `json:"descricao"`
 }
 
+func handler404(c gnet.Conn, body []byte, hc *httpCodec) gnet.Action {
+	writeResponse(hc, "{\"message\":\"404 not found\"}", 404)
+	return gnet.None
+}
+
 func (r *routerStruct) findHandler(path string) (func(gnet.Conn, []byte, *httpCodec) gnet.Action, bool) {
 	for registeredPath, handler := range r.routes {
 		if len(registeredPath) <= len(path) && registeredPath == path[:len(registeredPath)] {
 			return handler, true
 		}
 	}
-	return nil, false
+	return handler404, true
 }
 
 var router = routerStruct{
@@ -47,11 +52,12 @@ var router = routerStruct{
 	},
 }
 
-func writeResponse(hc *httpCodec, content string) {
-	hc.buf = append(hc.buf, "HTTP/1.1 200 OK\r\nServer: gnet\r\nContent-Type: application/json	\r\nDate: "...)
+func writeResponse(hc *httpCodec, content string, status_code int) {
+	formattedString := fmt.Sprintf("HTTP/1.1 %s OK\r\nServer: gnet\r\nContent-Type: application/json	\r\nDate: ", strconv.Itoa(status_code))
+	hc.buf = append(hc.buf, formattedString...)
 	hc.buf = time.Now().AppendFormat(hc.buf, "Mon, 02 Jan 2006 15:04:05 GMT")
 	contentLength := len(content)
-	formattedString := fmt.Sprintf("\r\nContent-Lenght: %d\r\n\r\n%s", contentLength, content)
+	formattedString = fmt.Sprintf("\r\nContent-Lenght: %d\r\n\r\n%s", contentLength, content)
 	hc.buf = append(hc.buf, formattedString...)
 }
 
@@ -117,37 +123,58 @@ func clientHandler(c gnet.Conn, body []byte, hc *httpCodec) gnet.Action {
 
 	if path == "/clientes/"+strId+"/transacoes" {
 		pgConn := generateDbConn()
-		transacoes(pgConn, body, id)
-		writeResponse(hc, "{\"response\": \"transacoes id"+strId+"\"}")
+		msg, status_code := transacoes(pgConn, body, id)
+		writeResponse(hc, msg, status_code)
 	} else if path == "/clientes/"+strId+"/extrato" {
 		pgConn := generateDbConn()
-		extrato(pgConn, body, id)
-		writeResponse(hc, "{\"response\": \"extract id"+strId+"\"}")
-	} else {
-		writeResponse(hc, "{\"response\": \"not found\"}")
+		msg, status_code := extrato(pgConn, body, id)
+		writeResponse(hc, msg, status_code)
 	}
 
 	return gnet.None
 }
 
-func extrato(pgConn *pgxpool.Pool, body []byte, client_id int) {
-	log.Print("Olá")
+func extrato(pgConn *pgxpool.Pool, body []byte, client_id int) (string, int) {
+	return "{\"response\": \"extract id\"}", 200
 }
 
-func transacoes(pgConn *pgxpool.Pool, body []byte, client_id int) {
-	log.Print("Olaa")
+func transacoes(pgConn *pgxpool.Pool, body []byte, client_id int) (string, int) {
 	var payload PayloadTransaction
 	err := json.Unmarshal(body, &payload)
 
 	if err != nil {
-		log.Fatalf("Erro ao deserializar JSON: %v", err)
+		return "{\"message\": \"erro ao deserializar JSON\"}", 422
 	}
+
 	if reflect.ValueOf(payload).IsZero() {
-		log.Fatal("Erro ao deserializar JSON")
+		return "{\"message\": \"erro ao deserializar JSON\"}", 422
+	}
+
+	if payload.Valor <= 0 {
+		return "{\"message\": \"valor nao pode ser negativo ou zero\"}", 422
+	}
+
+	if len(payload.Descricao) > 10 {
+		return "{\"message\": \"descricao contem mais de 10chars\"}", 422
 	}
 
 	if payload.Tipo == "d" {
-		_, err = pgConn.Exec(context.Background(), "select debitar($1, $2, $3)", client_id, payload.Valor, payload.Descricao)
+		a, err := pgConn.Query(context.Background(), "select debitar($1, $2, $3)", client_id, payload.Valor, payload.Descricao)
+		for a.Next() {
+			columnValues, _ := a.Values()
+			for _, v := range columnValues {
+				log.Print(v)
+				if arrayValue, ok := v.([]interface{}); ok {
+					if len(arrayValue) >= 2 && arrayValue[1] != nil {
+						booleanValue, _ := arrayValue[1].(bool)
+						if booleanValue {
+							return "{\"message\": \"saldo insuficiente\"}", 422
+						}
+					}
+				}
+			}
+		}
+
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -156,12 +183,16 @@ func transacoes(pgConn *pgxpool.Pool, body []byte, client_id int) {
 		if err != nil {
 			log.Fatal(err)
 		}
+	} else {
+		return "{\"message\": \"tipo invalido\"}", 422
 	}
+
+	return "{\"message\": \"so sucessi\"}", 200
 
 }
 
 func helloHandler(c gnet.Conn, body []byte, hc *httpCodec) gnet.Action {
-	writeResponse(hc, "{\"hello\": \"Hello World!\"}")
+	writeResponse(hc, "{\"hello\": \"Hello World!\"}", 200)
 	return gnet.None
 }
 
