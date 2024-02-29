@@ -4,6 +4,7 @@ go 1.22.0
 
 require (
 	github.com/evanphx/wildcat v0.0.0-20141114174135-e7012f664567 // indirect
+	github.com/hlts2/round-robin v0.0.0-20230814122250-2a846cd188be
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a // indirect
 	github.com/jackc/pgx v3.6.2+incompatible // indirect

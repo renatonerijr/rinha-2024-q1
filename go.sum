@@ -3,6 +3,8 @@ github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSs
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/evanphx/wildcat v0.0.0-20141114174135-e7012f664567 h1:7+oQw6YjB/kk9x27AEC7DMXudqERHD583hZpno18lRw=
 github.com/evanphx/wildcat v0.0.0-20141114174135-e7012f664567/go.mod h1:XNGflD53X+hfdCAt1NGeBUgiUpe9QmweW/zI1gV26Zw=
+github.com/hlts2/round-robin v0.0.0-20230814122250-2a846cd188be h1:vCWrmH5gHHZdiT7Qy4avloJJDp3domcFydz9l/Bp4os=
+github.com/hlts2/round-robin v0.0.0-20230814122250-2a846cd188be/go.mod h1:f2ev6So4MHTuuN8l4O7GC3N/9Mo60W6VpUKJT+BcCX8=
 github.com/jackc/pgpassfile v1.0.0 h1:/6Hmqy13Ss2zCq62VdNG8tM1wchn8zjSGOBJ6icpsIM=
 github.com/jackc/pgpassfile v1.0.0/go.mod h1:CEx0iS5ambNFdcRtxPj5JhEz+xB6uRky5eyVu/W2HEg=
 github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a h1:bbPeKD0xmW/Y25WS6cokEszi5g+S0QxI/d45PkRi7Nk=

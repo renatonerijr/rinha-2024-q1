@@ -31,6 +31,22 @@ type PayloadTransaction struct {
 	Descricao string `json:"descricao"`
 }
 
+type TransactionResult struct {
+	Valor   int
+	Error   bool
+	Message string
+	Limite  int
+}
+
+type ExtractResult struct {
+	Saldo                  int
+	Limite                 int
+	TransactionValue       int
+	TransactionType        string
+	TransactionDescription string
+	TransactionDate        time.Time
+}
+
 func handler404(c gnet.Conn, body []byte, hc *httpCodec) gnet.Action {
 	writeResponse(hc, "{\"message\":\"404 not found\"}", 404)
 	return gnet.None
@@ -70,7 +86,7 @@ func Config() *pgxpool.Config {
 	const defaultConnectTimeout = time.Second * 5
 
 	// Your own Database URL
-	const DATABASE_URL string = "postgres://admin:123@localhost:5432/rinha?"
+	const DATABASE_URL string = "postgres://admin:123@db:5432/rinha?"
 
 	dbConfig, err := pgxpool.ParseConfig(DATABASE_URL)
 	if err != nil {
@@ -95,6 +111,7 @@ func generateDbConn() *pgxpool.Pool {
 
 	connection, err := connPool.Acquire(context.Background())
 	if err != nil {
+		log.Print(err)
 		log.Fatal("Error while acquiring connection from the database pool!!")
 	}
 	defer connection.Release()
@@ -124,10 +141,12 @@ func clientHandler(c gnet.Conn, body []byte, hc *httpCodec) gnet.Action {
 	if path == "/clientes/"+strId+"/transacoes" {
 		pgConn := generateDbConn()
 		msg, status_code := transacoes(pgConn, body, id)
+		pgConn.Close()
 		writeResponse(hc, msg, status_code)
 	} else if path == "/clientes/"+strId+"/extrato" {
 		pgConn := generateDbConn()
 		msg, status_code := extrato(pgConn, body, id)
+		pgConn.Close()
 		writeResponse(hc, msg, status_code)
 	}
 
@@ -135,7 +154,33 @@ func clientHandler(c gnet.Conn, body []byte, hc *httpCodec) gnet.Action {
 }
 
 func extrato(pgConn *pgxpool.Pool, body []byte, client_id int) (string, int) {
-	return "{\"response\": \"extract id\"}", 200
+	a, err := pgConn.Query(context.Background(), "select get_cliente_data_raw($1)", client_id)
+	if err != nil {
+		return "{\"message\": \"Erro na query sql\"}", 422
+	}
+	var result ExtractResult
+	var resultList []ExtractResult
+	for a.Next() {
+		a.Scan(&result)
+		resultList = append(resultList, result)
+	}
+	a.Close()
+	if reflect.ValueOf(result).IsZero() {
+		return "{\"message\": \"usuário não encontrado\"}", 404
+	}
+	// returnMsg :=
+	dataExtrato := time.Now().Format(time.RFC3339Nano)
+	returnMsg := fmt.Sprintf("{\"saldo\": { \"total\": %d, \"data_extrato\": \"%s\", \"limite\": %d}, \"ultimas_transacoes\": [", result.Saldo, dataExtrato, result.Limite)
+	for i, v := range resultList {
+		if v.TransactionType != "" {
+			returnMsg += fmt.Sprintf("{\"valor\": %d, \"tipo\": \"%s\", \"descricao\": \"%s\", \"realizada_em\": \"%s\"}", v.TransactionValue, v.TransactionType, v.TransactionDescription, v.TransactionDate)
+			if i+1 != len(resultList) {
+				returnMsg += ","
+			}
+		}
+	}
+	returnMsg += "]}"
+	return returnMsg, 200
 }
 
 func transacoes(pgConn *pgxpool.Pool, body []byte, client_id int) (string, int) {
@@ -160,34 +205,42 @@ func transacoes(pgConn *pgxpool.Pool, body []byte, client_id int) (string, int) 
 
 	if payload.Tipo == "d" {
 		a, err := pgConn.Query(context.Background(), "select debitar($1, $2, $3)", client_id, payload.Valor, payload.Descricao)
+		if err != nil {
+			return "{\"message\": \"Erro na query sql\"}", 422
+		}
+		var result TransactionResult
 		for a.Next() {
-			columnValues, _ := a.Values()
-			for _, v := range columnValues {
-				log.Print(v)
-				if arrayValue, ok := v.([]interface{}); ok {
-					if len(arrayValue) >= 2 && arrayValue[1] != nil {
-						booleanValue, _ := arrayValue[1].(bool)
-						if booleanValue {
-							return "{\"message\": \"saldo insuficiente\"}", 422
-						}
-					}
-				}
-			}
+			a.Scan(&result)
+		}
+		a.Close()
+		if result.Error {
+			formatedMessage := fmt.Sprintf("{\"message\": \"%s\"}", result.Message)
+			return formatedMessage, 422
+		} else {
+			formatedMessage := fmt.Sprintf("{\"limite\": \"%d\", \"saldo\": \"%d\"}", result.Limite, result.Valor)
+			return formatedMessage, 200
 		}
 
+	} else if payload.Tipo == "c" {
+		a, err := pgConn.Query(context.Background(), "select creditar($1, $2, $3)", client_id, payload.Valor, payload.Descricao)
 		if err != nil {
 			log.Fatal(err)
 		}
-	} else if payload.Tipo == "c" {
-		_, err = pgConn.Exec(context.Background(), "select creditar($1, $2, $3)", client_id, payload.Valor, payload.Descricao)
-		if err != nil {
-			log.Fatal(err)
+		var result TransactionResult
+		for a.Next() {
+			a.Scan(&result)
+		}
+		a.Close()
+		if result.Error {
+			formatedMessage := fmt.Sprintf("{\"message\": \"%s\"}", result.Message)
+			return formatedMessage, 422
+		} else {
+			formatedMessage := fmt.Sprintf("{\"limite\": \"%d\", \"saldo\": \"%d\"}", result.Limite, result.Valor)
+			return formatedMessage, 200
 		}
 	} else {
 		return "{\"message\": \"tipo invalido\"}", 422
 	}
-
-	return "{\"message\": \"so sucessi\"}", 200
 
 }
 
@@ -266,7 +319,7 @@ func main() {
 	flag.BoolVar(&multicore, "multicore", true, "multicore")
 	flag.Parse()
 
-	hs := &httpServer{addr: fmt.Sprintf("tcp://127.0.0.1:%d", port), multicore: multicore}
+	hs := &httpServer{addr: fmt.Sprintf("tcp://0.0.0.0:%d", port), multicore: multicore}
 	// Start serving!
 	log.Println("server exits:", gnet.Run(hs, hs.addr, gnet.WithMulticore(multicore)))
 }

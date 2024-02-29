@@ -45,7 +45,9 @@ CREATE OR REPLACE FUNCTION debitar(
 RETURNS TABLE (
 	novo_saldo INT,
 	possui_erro BOOL,
-	mensagem VARCHAR(20))
+	mensagem VARCHAR(20),
+	limite INT
+)
 LANGUAGE plpgsql
 AS $$
 DECLARE
@@ -76,7 +78,8 @@ BEGIN
 			SELECT
 				valor,
 				FALSE,
-				'ok'::VARCHAR(20)
+				'ok'::VARCHAR(20),
+				limite_atual
 			FROM saldos
 			WHERE cliente_id = cliente_id_tx;
 	ELSE
@@ -84,7 +87,8 @@ BEGIN
 			SELECT
 				valor,
 				TRUE,
-				'saldo insuficente'::VARCHAR(20)
+				'saldo insuficente'::VARCHAR(20),
+				limite_atual
 			FROM saldos
 			WHERE cliente_id = cliente_id_tx;
 	END IF;
@@ -98,7 +102,9 @@ CREATE OR REPLACE FUNCTION creditar(
 RETURNS TABLE (
 	novo_saldo INT,
 	possui_erro BOOL,
-	mensagem VARCHAR(20))
+	mensagem VARCHAR(20),
+	limite INT
+)
 LANGUAGE plpgsql
 AS $$
 BEGIN
@@ -111,6 +117,35 @@ BEGIN
 		UPDATE saldos
 		SET valor = valor + valor_tx
 		WHERE cliente_id = cliente_id_tx
-		RETURNING valor, FALSE, 'ok'::VARCHAR(20);
+		RETURNING valor, FALSE, 'ok'::VARCHAR(20), (SELECT clientes.limite FROM clientes WHERE clientes.id = cliente_id_tx) AS limite;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION get_cliente_data_raw(cliente_id INTEGER)
+RETURNS TABLE (
+  saldo_total INTEGER,
+  saldo_limite INTEGER,
+  valor INTEGER,
+  tipo CHAR(1),
+  descricao VARCHAR(10),
+  realizada_em TIMESTAMP
+) 
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    s.valor AS saldo_total,
+    c.limite AS saldo_limite,
+    t.valor,
+    t.tipo,
+    t.descricao,
+    t.realizada_em
+  FROM clientes c
+  INNER JOIN saldos s ON c.id = s.cliente_id
+  FULL JOIN transacoes t ON c.id = t.cliente_id
+  WHERE c.id = $1
+  ORDER BY t.realizada_em DESC
+  LIMIT 10;
 END;
 $$;
